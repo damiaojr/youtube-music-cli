@@ -303,6 +303,9 @@ const cli = meow(
 			cookiesFromBrowser: {
 				type: 'string',
 			},
+			cookie: {
+				type: 'string',
+			},
 		},
 		autoVersion: true,
 		autoHelp: false,
@@ -456,6 +459,20 @@ if (command === 'login') {
 	const cookiesFile = cli.flags.cookiesFile as string | undefined;
 	const cookiesFromBrowser = cli.flags.cookiesFromBrowser as
 		'chrome' | 'firefox' | 'edge' | 'brave' | undefined;
+	const rawCookie = cli.flags.cookie as string | undefined;
+
+	if (rawCookie) {
+		console.log('Starting YouTube Music login (direct cookie string)...');
+		const result = await authService.signInWithCookie(rawCookie);
+		if (result.success) {
+			console.log('');
+			console.log('✓ Successfully signed in to YouTube Music (cookies)');
+			process.exit(0);
+		} else {
+			console.error(`\n✗ Login failed: ${result.error ?? 'Unknown error'}`);
+			process.exit(1);
+		}
+	}
 
 	if (cookiesFile) {
 		console.log('Starting YouTube Music login (cookie import from file)...');

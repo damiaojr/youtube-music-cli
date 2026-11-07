@@ -32,6 +32,10 @@ export interface Flags {
 	open?: boolean;
 	getPath?: boolean;
 	setPath?: string;
+	// Auth flags
+	cookie?: string;
+	cookiesFile?: string;
+	cookiesFromBrowser?: 'chrome' | 'firefox' | 'edge' | 'brave';
 	// Config doctor flags
 	fix?: boolean;
 	// Last.fm flags

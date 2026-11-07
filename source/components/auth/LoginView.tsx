@@ -17,10 +17,10 @@ export default function LoginView() {
 	const {theme} = useTheme();
 	const {dispatch} = useNavigation();
 	const authService = getAuthService();
-	const status = authService.getStatus();
+	const [status, setStatus] = useState(() => authService.getStatus());
 
 	const [loginState, setLoginState] = useState<LoginState>('idle');
-	const [progress, setProgress] = useState('Starting login...');
+	const [progress, setProgress] = useState('Select an authentication method');
 	const [deviceCode, setDeviceCode] = useState<{
 		verificationUrl: string;
 		userCode: string;
@@ -33,18 +33,55 @@ export default function LoginView() {
 		dispatch({category: 'GO_BACK'});
 	});
 
-	const handleLogin = useCallback(async () => {
-		if (status.loggedIn) {
-			return;
-		}
+	const handleSignOut = useCallback(async () => {
+		await authService.signOut();
+		setStatus(authService.getStatus());
+		setLoginState('idle');
+		setError(null);
+		setDeviceCode(null);
+		loginInitiated.current = false;
+	}, [authService]);
 
+	const handleImportFirefox = useCallback(async () => {
 		setLoginState('pending');
-		setProgress('Starting login...');
+		setProgress('Importing YouTube cookies from Firefox...');
+		setError(null);
+		setShowCookieFallback(false);
+		const result = await authService.signInFromBrowser('firefox');
+		if (result.success) {
+			setStatus(authService.getStatus());
+			setLoginState('success');
+		} else {
+			setLoginState('error');
+			setError(result.error ?? 'Failed to extract Firefox cookies');
+			setShowCookieFallback(true);
+		}
+	}, [authService]);
+
+	const handleImportChrome = useCallback(async () => {
+		setLoginState('pending');
+		setProgress('Importing YouTube cookies from Chrome...');
+		setError(null);
+		setShowCookieFallback(false);
+		const result = await authService.signInFromBrowser('chrome');
+		if (result.success) {
+			setStatus(authService.getStatus());
+			setLoginState('success');
+		} else {
+			setLoginState('error');
+			setError(result.error ?? 'Failed to extract Chrome cookies');
+			setShowCookieFallback(true);
+		}
+	}, [authService]);
+
+	const handleDeviceCodeLogin = useCallback(async () => {
+		setLoginState('pending');
+		setProgress('Starting YouTube client...');
 		setError(null);
 		setShowCookieFallback(false);
 		setDeviceCode(null);
 
-		const result = await getAuthService().signIn({
+		const result = await authService.signIn({
 			onProgress: message => {
 				setProgress(message);
 			},
@@ -55,6 +92,7 @@ export default function LoginView() {
 		});
 
 		if (result.success) {
+			setStatus(authService.getStatus());
 			setLoginState('success');
 			return;
 		}
@@ -62,18 +100,47 @@ export default function LoginView() {
 		setLoginState('error');
 		setError(result.error ?? 'Login failed');
 		setShowCookieFallback(true);
-	}, [status.loggedIn]);
+	}, [authService]);
 
-	useKeyBinding(['r'], () => {
+	// Shortcuts
+	useKeyBinding(['x', 'X'], () => {
+		if (status.loggedIn) {
+			void handleSignOut();
+		}
+	});
+
+	useKeyBinding(['f', 'F'], () => {
+		if (loginState !== 'pending' && loginState !== 'authenticating') {
+			void handleImportFirefox();
+		}
+	});
+
+	useKeyBinding(['c', 'C'], () => {
+		if (loginState !== 'pending' && loginState !== 'authenticating') {
+			void handleImportChrome();
+		}
+	});
+
+	useKeyBinding(['d', 'D'], () => {
+		if (
+			!status.loggedIn &&
+			loginState !== 'pending' &&
+			loginState !== 'authenticating'
+		) {
+			void handleDeviceCodeLogin();
+		}
+	});
+
+	useKeyBinding(['r', 'R'], () => {
 		if (loginState === 'error' || showCookieFallback) {
 			setLoginState('idle');
 			setError(null);
 			setShowCookieFallback(false);
-			loginInitiated.current = true;
-			void handleLogin();
+			void handleImportFirefox();
 		}
 	});
 
+	// If not logged in, attempt automatic Firefox cookie import once
 	useEffect(() => {
 		if (status.loggedIn || loginInitiated.current) {
 			return;
@@ -81,9 +148,9 @@ export default function LoginView() {
 
 		loginInitiated.current = true;
 		queueMicrotask(() => {
-			void handleLogin();
+			void handleImportFirefox();
 		});
-	}, [handleLogin, status.loggedIn]);
+	}, [handleImportFirefox, status.loggedIn]);
 
 	return (
 		<Box flexDirection="column" paddingX={1} paddingY={1}>
@@ -104,31 +171,34 @@ export default function LoginView() {
 						</Text>
 					</Box>
 					{status.method === 'cookie' ? (
-						<Box>
-							<Text color={theme.colors.text}>
-								Using cookie-based authentication
+						<Box flexDirection="column">
+							<Text color="green">
+								✓ Using cookie-based authentication (Library & Liked Music
+								active)
 							</Text>
 						</Box>
 					) : (
-						<>
-							<Box flexDirection="column">
-								{OAUTH_UNSUPPORTED_MESSAGE.split('\n').map(line => (
-									<Text key={line} color="yellow">
-										{line}
-									</Text>
-								))}
+						<Box flexDirection="column" gap={1}>
+							{OAUTH_UNSUPPORTED_MESSAGE.split('\n').map(line => (
+								<Text key={line} color="yellow">
+									{line}
+								</Text>
+							))}
+							<Box marginTop={1}>
+								<Text color={theme.colors.accent} bold>
+									Press F to switch to Firefox cookies
+								</Text>
 							</Box>
-							{!status.tokenValid && (
-								<Box>
-									<Text color="yellow">
-										Token expired (will refresh automatically)
-									</Text>
-								</Box>
-							)}
-						</>
+						</Box>
 					)}
-					<Box>
-						<Text color={theme.colors.dim}>Esc to go back</Text>
+					<Box marginTop={1}>
+						<Text color={theme.colors.dim}>
+							Press{' '}
+							<Text bold color="red">
+								X
+							</Text>{' '}
+							to sign out, or Esc to go back
+						</Text>
 					</Box>
 				</Box>
 			) : loginState === 'authenticating' && deviceCode ? (
@@ -164,7 +234,7 @@ export default function LoginView() {
 				<Box flexDirection="column" gap={1}>
 					<Box>
 						<Text color="green" bold>
-							✓ Successfully signed in!
+							✓ Successfully signed in with cookies!
 						</Text>
 					</Box>
 					<Box>
@@ -175,7 +245,7 @@ export default function LoginView() {
 				<Box flexDirection="column" gap={1}>
 					<Box>
 						<Text color="red" bold>
-							✗ Login failed
+							✗ Sign-in failed
 						</Text>
 					</Box>
 					{error && (
@@ -192,19 +262,44 @@ export default function LoginView() {
 							))}
 						</Box>
 					)}
-					<Box>
+					<Box marginTop={1}>
 						<Text color={theme.colors.dim}>
 							Press{' '}
 							<Text bold color={theme.colors.primary}>
-								R
+								F
 							</Text>{' '}
-							to retry, Esc to go back
+							for Firefox,{' '}
+							<Text bold color={theme.colors.primary}>
+								C
+							</Text>{' '}
+							for Chrome,{' '}
+							<Text bold color={theme.colors.primary}>
+								D
+							</Text>{' '}
+							for TV Device Code, Esc to go back
 						</Text>
 					</Box>
 				</Box>
 			) : (
-				<Box>
+				<Box flexDirection="column" gap={1}>
 					<Text color={theme.colors.dim}>{progress}</Text>
+					<Box marginTop={1}>
+						<Text color={theme.colors.dim}>
+							Press{' '}
+							<Text bold color={theme.colors.primary}>
+								F
+							</Text>{' '}
+							to import from Firefox,{' '}
+							<Text bold color={theme.colors.primary}>
+								C
+							</Text>{' '}
+							for Chrome,{' '}
+							<Text bold color={theme.colors.primary}>
+								D
+							</Text>{' '}
+							for TV Code
+						</Text>
+					</Box>
 				</Box>
 			)}
 

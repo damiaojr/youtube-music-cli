@@ -271,6 +271,85 @@ async function extractBrowserCookiesViaYtdlp(
 }
 
 /**
+ * Directly extract YouTube cookies from Firefox profile SQLite databases.
+ * Uses WAL-safe file copying so it works even while Firefox is running.
+ */
+async function extractFirefoxCookiesViaPython(): Promise<string | null> {
+	const pythonScript = `
+import sqlite3, os, shutil, tempfile
+
+home = os.path.expanduser('~')
+candidates = [
+    os.path.join(home, '.config', 'mozilla', 'firefox'),
+    os.path.join(home, '.mozilla', 'firefox'),
+    os.path.join(home, '.var', 'app', 'org.mozilla.firefox', '.mozilla', 'firefox'),
+    os.path.join(home, 'snap', 'firefox', 'common', '.mozilla', 'firefox'),
+    os.path.join(home, 'Library', 'Application Support', 'Firefox', 'Profiles'),
+    os.path.join(os.environ.get('APPDATA', ''), 'Mozilla', 'Firefox', 'Profiles') if os.environ.get('APPDATA') else ''
+]
+
+candidates = [c for c in candidates if c and os.path.isdir(c)]
+found_cookies = None
+
+for base in candidates:
+    try:
+        entries = os.listdir(base)
+    except Exception:
+        continue
+    for profile in entries:
+        profile_path = os.path.join(base, profile)
+        db_path = os.path.join(profile_path, 'cookies.sqlite')
+        if not os.path.isfile(db_path):
+            continue
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                for f in ['cookies.sqlite', 'cookies.sqlite-wal', 'cookies.sqlite-shm']:
+                    src = os.path.join(profile_path, f)
+                    if os.path.exists(src):
+                        shutil.copy2(src, os.path.join(tmp, f))
+                conn = sqlite3.connect(os.path.join(tmp, 'cookies.sqlite'))
+                cur = conn.cursor()
+                cur.execute("SELECT host, path, isSecure, expiry, name, value FROM moz_cookies WHERE host LIKE '%youtube%' OR host LIKE '%google%'")
+                rows = cur.fetchall()
+                conn.close()
+                names = {r[4] for r in rows}
+                if any(k in names for k in ['SAPISID', 'SID', 'SSID', 'HSID', 'LOGIN_INFO']):
+                    lines = ['# Netscape HTTP Cookie File']
+                    for host, path, is_sec, exp, name, val in rows:
+                        sec_str = 'TRUE' if is_sec else 'FALSE'
+                        lines.append(f"{host}\\tTRUE\\t{path}\\t{sec_str}\\t{exp}\\t{name}\\t{val}")
+                    found_cookies = '\\n'.join(lines)
+                    break
+        except Exception:
+            pass
+    if found_cookies:
+        break
+
+if found_cookies:
+    print(found_cookies)
+`.trim();
+
+	const pythonExe =
+		process.platform === 'win32'
+			? process.env.PY_PYTHON || 'python'
+			: 'python3';
+
+	try {
+		const {stdout} = await execFileAsync(pythonExe, ['-c', pythonScript], {
+			timeout: 15000,
+		});
+		if (stdout && stdout.trim()) {
+			return stdout.trim();
+		}
+	} catch (err) {
+		logger.debug('CookieUtils', 'Firefox python extraction failed', {
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
+	return null;
+}
+
+/**
  * Parse browser cookies from a browser's cookie storage.
  * Uses yt-dlp as the primary method, with a Python SQLite fallback on Windows
  * when yt-dlp fails due to browser file locks.
@@ -295,6 +374,17 @@ export async function parseBrowserCookies(
 			`Browser '${browser}' not supported for cookie extraction`,
 		);
 		return null;
+	}
+
+	// For Firefox, try direct profile database extraction first (avoids needing yt-dlp)
+	if (browser === 'firefox') {
+		const direct = await extractFirefoxCookiesViaPython();
+		if (direct) {
+			const result = parseNetscapeCookies(direct);
+			if (result) {
+				return result;
+			}
+		}
 	}
 
 	// Use yt-dlp to extract cookies from the browser
