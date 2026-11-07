@@ -15,6 +15,25 @@ export interface KeybindingConfig {
 	description: string;
 }
 
+export interface LastFmConfig {
+	enabled?: boolean;
+	apiKey?: string;
+	apiSecret?: string;
+	sessionKey?: string;
+	username?: string;
+	scrobbleNowPlaying?: boolean;
+}
+
+export interface ListenBrainzConfig {
+	enabled?: boolean;
+	token?: string;
+}
+
+export interface ScrobblingConfig {
+	lastfm?: LastFmConfig;
+	listenbrainz?: ListenBrainzConfig;
+}
+
 export interface Config {
 	theme:
 		| 'dark'
@@ -41,15 +60,7 @@ export interface Config {
 	volumeFadeDuration?: number;
 	equalizerPreset?: EqualizerPreset;
 	notifications?: boolean;
-	scrobbling?: {
-		lastfm?: {
-			apiKey?: string;
-			sessionKey?: string;
-		};
-		listenbrainz?: {
-			token?: string;
-		};
-	};
+	scrobbling?: ScrobblingConfig;
 	discordRichPresence?: boolean;
 	proxy?: string;
 	/** Netscape cookies.txt for yt-dlp (preferred over cookiesFromBrowser). */

@@ -127,6 +127,14 @@ const cli = meow(
 	  $ youtube-music-cli logout               Sign out and remove credentials
 	  $ youtube-music-cli whoami               Show current account status
 
+	📻 Last.fm Commands
+	  $ youtube-music-cli lastfm auth          Authenticate with Last.fm
+	  $ youtube-music-cli lastfm status        Show Last.fm connection status
+	  $ youtube-music-cli lastfm enable        Enable Last.fm scrobbling
+	  $ youtube-music-cli lastfm disable       Disable Last.fm scrobbling
+	  $ youtube-music-cli lastfm logout        Sign out from Last.fm
+	  $ youtube-music-cli lastfm test          Test connection to Last.fm
+
 	⚙️  Options
 	  --theme, -t          Theme to use (dark, light, midnight, matrix, etc.)
 	  --volume, -v         Initial volume (0-100)
@@ -235,6 +243,12 @@ const cli = meow(
 			fix: {
 				type: 'boolean',
 				default: false,
+			},
+			apiKey: {
+				type: 'string',
+			},
+			apiSecret: {
+				type: 'string',
 			},
 			// Verbose logging flag
 			dryRun: {
@@ -562,6 +576,218 @@ if (command === 'whoami') {
 		`Token valid: ${status.tokenValid ? 'Yes' : 'Expired (will refresh)'}`,
 	);
 	process.exit(0);
+}
+
+// Handle lastfm commands
+if (command === 'lastfm') {
+	const sub = args[0] || 'status';
+	const {
+		lastfmGetToken,
+		lastfmGetAuthUrl,
+		lastfmGetSession,
+		lastfmGetUserInfo,
+	} = await import('./services/scrobbling/scrobbling.service.ts');
+	const config = getConfigService();
+	const currentScrobbling = config.get('scrobbling') ?? {};
+	const lastfm = currentScrobbling.lastfm ?? {};
+
+	if (sub === 'status') {
+		const isConfigured = Boolean(
+			lastfm.apiKey && lastfm.apiSecret && lastfm.sessionKey,
+		);
+		console.log('📻 Last.fm Integration Status\n');
+		console.log(`  Connected:    ${isConfigured ? '✓ Yes' : '✗ No'}`);
+		console.log(
+			`  Account:      ${lastfm.username ? `@${lastfm.username}` : '(not authenticated)'}`,
+		);
+		console.log(`  Scrobbling:   ${lastfm.enabled ? 'Enabled' : 'Disabled'}`);
+		console.log(
+			`  Now Playing:  ${lastfm.scrobbleNowPlaying !== false ? 'Enabled' : 'Disabled'}`,
+		);
+		if (lastfm.apiKey) {
+			const masked =
+				lastfm.apiKey.length > 8
+					? `${lastfm.apiKey.slice(0, 4)}...${lastfm.apiKey.slice(-4)}`
+					: '****';
+			console.log(`  API Key:      ${masked}`);
+		}
+		if (!isConfigured) {
+			console.log(
+				'\nRun `youtube-music-cli lastfm auth` to connect your Last.fm account.',
+			);
+		}
+		process.exit(0);
+	}
+
+	if (sub === 'enable') {
+		if (!lastfm.sessionKey) {
+			console.error(
+				'✗ Last.fm is not connected yet. Run `youtube-music-cli lastfm auth` first.',
+			);
+			process.exit(1);
+		}
+		config.set('scrobbling', {
+			...currentScrobbling,
+			lastfm: {...lastfm, enabled: true},
+		});
+		console.log('✓ Last.fm scrobbling enabled.');
+		process.exit(0);
+	}
+
+	if (sub === 'disable') {
+		config.set('scrobbling', {
+			...currentScrobbling,
+			lastfm: {...lastfm, enabled: false},
+		});
+		console.log('✓ Last.fm scrobbling disabled.');
+		process.exit(0);
+	}
+
+	if (sub === 'logout') {
+		config.set('scrobbling', {
+			...currentScrobbling,
+			lastfm: {
+				...lastfm,
+				sessionKey: undefined,
+				username: undefined,
+				enabled: false,
+			},
+		});
+		console.log('✓ Signed out from Last.fm.');
+		process.exit(0);
+	}
+
+	if (sub === 'test') {
+		if (!lastfm.apiKey || !lastfm.sessionKey) {
+			console.error(
+				'✗ Last.fm is not connected. Run `youtube-music-cli lastfm auth` first.',
+			);
+			process.exit(1);
+		}
+		try {
+			console.log('Testing Last.fm connection...');
+			const info = await lastfmGetUserInfo(
+				lastfm.apiKey,
+				lastfm.username ?? '',
+			);
+			console.log(
+				`✓ Connected as @${info.name}! Total scrobbles: ${info.playcount ?? 'N/A'}`,
+			);
+			process.exit(0);
+		} catch (err) {
+			console.error(
+				`✗ Connection check failed: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			process.exit(1);
+		}
+	}
+
+	if (sub === 'auth' || sub === 'login') {
+		const readline = await import('node:readline/promises');
+		const rl = readline.createInterface({
+			input: process.stdin,
+			output: process.stdout,
+		});
+
+		try {
+			const cliFlags = cli.flags as Flags;
+			let apiKey =
+				cliFlags.apiKey || lastfm.apiKey || process.env['LASTFM_API_KEY'];
+			let apiSecret =
+				cliFlags.apiSecret ||
+				lastfm.apiSecret ||
+				process.env['LASTFM_API_SECRET'];
+
+			if (!apiKey || !apiSecret) {
+				console.log('📻 Last.fm Authentication Setup\n');
+				console.log(
+					'To obtain an API key and shared secret, visit: https://www.last.fm/api/account/create\n',
+				);
+				if (!apiKey) {
+					apiKey = (await rl.question('Enter Last.fm API Key: ')).trim();
+				}
+				if (!apiSecret) {
+					apiSecret = (
+						await rl.question('Enter Last.fm Shared Secret: ')
+					).trim();
+				}
+			}
+
+			if (!apiKey || !apiSecret) {
+				console.error('✗ API key and shared secret are required.');
+				process.exit(1);
+			}
+
+			console.log('\nRequesting authentication token from Last.fm...');
+			const token = await lastfmGetToken(apiKey, apiSecret);
+			const authUrl = lastfmGetAuthUrl(apiKey, token);
+
+			console.log(
+				'\nPlease visit the following URL to authorize youtube-music-cli:',
+			);
+			console.log(`\n  ${authUrl}\n`);
+
+			// Try to automatically open in default browser
+			try {
+				const {spawn} = await import('node:child_process');
+				if (process.platform === 'darwin') {
+					spawn('open', [authUrl], {detached: true, stdio: 'ignore'}).unref();
+				} else if (process.platform === 'win32') {
+					spawn('cmd.exe', ['/c', 'start', '""', authUrl], {
+						detached: true,
+						stdio: 'ignore',
+					}).unref();
+				} else {
+					spawn('xdg-open', [authUrl], {
+						detached: true,
+						stdio: 'ignore',
+					}).unref();
+				}
+			} catch {
+				// Ignore browser open failure
+			}
+
+			await rl.question(
+				'Press Enter once you have granted access in your browser...',
+			);
+
+			console.log('\nExchanging token for session key...');
+			const session = await lastfmGetSession(apiKey, apiSecret, token);
+
+			config.set('scrobbling', {
+				...currentScrobbling,
+				lastfm: {
+					apiKey,
+					apiSecret,
+					sessionKey: session.sessionKey,
+					username: session.username,
+					enabled: true,
+					scrobbleNowPlaying: true,
+				},
+			});
+
+			console.log(
+				`\n✓ Successfully connected to Last.fm as @${session.username}!`,
+			);
+			console.log(
+				'Now playing updates and scrobbles (>50% or 4m) are now enabled.\n',
+			);
+			process.exit(0);
+		} catch (error) {
+			console.error(
+				`\n✗ Authentication failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			process.exit(1);
+		} finally {
+			rl.close();
+		}
+	}
+
+	console.error(`Unknown lastfm command: ${sub}`);
+	console.error(
+		'Available commands: auth, status, enable, disable, logout, test',
+	);
+	process.exit(1);
 }
 
 const isInteractiveTerminal = Boolean(

@@ -80,6 +80,7 @@ const SETTINGS_ITEMS = [
 	'Manage Plugins',
 	'Cache TTL',
 	'Cache Max Entries',
+	'Last.fm Scrobbling',
 ] as const;
 
 export default function Settings() {
@@ -168,6 +169,10 @@ export default function Settings() {
 	const [downloadFolderFeedback, setDownloadFolderFeedback] = useState<
 		string | null
 	>(null);
+	const [lastfmEnabled, setLastfmEnabled] = useState(
+		config.get('scrobbling')?.lastfm?.enabled ?? false,
+	);
+	const [lastfmFeedback, setLastfmFeedback] = useState<string | null>(null);
 	const [isEditingApiKey, setIsEditingApiKey] = useState(false);
 	const [isEditingBaseUrl, setIsEditingBaseUrl] = useState(false);
 	const {
@@ -422,6 +427,24 @@ export default function Settings() {
 		startTimer(nextPreset);
 	};
 
+	const toggleLastfm = () => {
+		const scrobbling = config.get('scrobbling') ?? {};
+		const lastfm = scrobbling.lastfm ?? {};
+		if (!lastfm.sessionKey) {
+			setLastfmFeedback(
+				'Run `youtube-music-cli lastfm auth` in terminal to connect',
+			);
+			return;
+		}
+		const next = !lastfmEnabled;
+		setLastfmEnabled(next);
+		config.set('scrobbling', {
+			...scrobbling,
+			lastfm: {...lastfm, enabled: next},
+		});
+		setLastfmFeedback(null);
+	};
+
 	const handleSelect = () => {
 		if (selectedIndex === 0) {
 			dispatch({category: 'NAVIGATE', view: VIEW.LOGIN});
@@ -489,6 +512,8 @@ export default function Settings() {
 			cycleCacheTtl();
 		} else if (selectedIndex === 32) {
 			cycleCacheEntries();
+		} else if (selectedIndex === 33) {
+			toggleLastfm();
 		}
 	};
 
@@ -1147,6 +1172,29 @@ export default function Settings() {
 					Cache Max Entries: {cacheMaxEntries}
 				</Text>
 			</Box>
+
+			{/* Last.fm Scrobbling */}
+			<Box paddingX={1}>
+				<Text
+					backgroundColor={
+						selectedIndex === 33 ? theme.colors.primary : undefined
+					}
+					color={
+						selectedIndex === 33 ? theme.colors.background : theme.colors.text
+					}
+					bold={selectedIndex === 33}
+				>
+					Last.fm Scrobbling:{' '}
+					{config.get('scrobbling')?.lastfm?.sessionKey
+						? `${lastfmEnabled ? 'ON' : 'OFF'} (@${config.get('scrobbling')?.lastfm?.username ?? 'connected'})`
+						: '(not connected - run `ymc lastfm auth`)'}
+				</Text>
+			</Box>
+			{lastfmFeedback && selectedIndex === 33 ? (
+				<Box paddingX={2}>
+					<Text color={theme.colors.accent}>{lastfmFeedback}</Text>
+				</Box>
+			) : null}
 
 			{/* Info */}
 			<Box marginTop={1}>

@@ -518,6 +518,33 @@ Example:
 "mpvExtraArgs": "--no-config"
 ```
 
+### Last.fm Scrobbling
+
+Scrobble your YouTube Music listening history and update "Now Playing" in real time on Last.fm. Also automatically syncs loved tracks when you favorite or unfavorite tracks (`f`).
+
+```bash
+# Connect your Last.fm account (interactive browser authorization)
+youtube-music-cli lastfm auth
+
+# Or pass your API credentials directly
+youtube-music-cli lastfm auth --api-key <key> --api-secret <secret>
+
+# Check connection status
+youtube-music-cli lastfm status
+
+# Enable or disable scrobbling
+youtube-music-cli lastfm enable
+youtube-music-cli lastfm disable
+
+# Test connection
+youtube-music-cli lastfm test
+
+# Sign out
+youtube-music-cli lastfm logout
+```
+
+You can also toggle Last.fm scrobbling directly inside the TUI and immersive mode (**Settings → Last.fm Scrobbling**).
+
 Args apply on the next track spawn. Conflicting flags (especially a second `--af=`) can break playback. `--input-ipc-server` and disabling idle are stripped so IPC keeps working.
 
 ## Troubleshooting

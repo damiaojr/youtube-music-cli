@@ -29,7 +29,7 @@ import {
 
 type ConfigService = ReturnType<typeof getConfigService>;
 
-export const IMMERSIVE_SETTINGS_COUNT = 31;
+export const IMMERSIVE_SETTINGS_COUNT = 32;
 
 const QUALITIES: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
 const DOWNLOAD_FORMATS: DownloadFormat[] = ['mp3', 'm4a'];
@@ -270,6 +270,12 @@ export function buildImmersiveSettingsRows(
 		{
 			label: 'Cache Entries',
 			value: String(config.get('cacheMaxEntries') ?? 100),
+		},
+		{
+			label: 'Last.fm Scrobbling',
+			value: config.get('scrobbling')?.lastfm?.sessionKey
+				? formatOnOff(config.get('scrobbling')?.lastfm?.enabled ?? false)
+				: 'Not linked',
 		},
 	];
 }
@@ -545,6 +551,19 @@ export async function cycleImmersiveSetting(
 				] ?? 100;
 			config.set('cacheMaxEntries', next);
 			return `Cache entries: ${next}`;
+		}
+		case 31: {
+			const scrobbling = config.get('scrobbling') ?? {};
+			const lastfm = scrobbling.lastfm ?? {};
+			if (!lastfm.sessionKey) {
+				return 'Last.fm: Run `youtube-music-cli lastfm auth` to connect';
+			}
+			const next = !(lastfm.enabled ?? false);
+			config.set('scrobbling', {
+				...scrobbling,
+				lastfm: {...lastfm, enabled: next},
+			});
+			return `Last.fm: ${formatOnOff(next)}`;
 		}
 		default:
 			return null;

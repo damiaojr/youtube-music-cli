@@ -9,6 +9,8 @@ import {
 import type {Track} from '../types/youtube-music.types.ts';
 import {getFavoritesManager} from '../services/favorites/favorites.service.ts';
 import {logger} from '../services/logger/logger.service.ts';
+import {getConfigService} from '../services/config/config.service.ts';
+import {getScrobblingService} from '../services/scrobbling/scrobbling.service.ts';
 
 type FavoritesAction = {category: 'SET_FAVORITES'; tracks: Track[]};
 
@@ -94,6 +96,20 @@ export function FavoritesProvider({children}: {children: ReactNode}) {
 							added ? 'Added favorite (toggle)' : 'Removed favorite (toggle)',
 							{title: track.title},
 						);
+						const config = getConfigService();
+						const scrobblingConfig = config.get('scrobbling');
+						if (scrobblingConfig) {
+							const scrobbler = getScrobblingService();
+							scrobbler.configure(scrobblingConfig);
+							if (scrobbler.isLastFmEnabled) {
+								const artist = track.artists?.[0]?.name ?? 'Unknown';
+								if (added) {
+									void scrobbler.love({title: track.title, artist});
+								} else {
+									void scrobbler.unlove({title: track.title, artist});
+								}
+							}
+						}
 					});
 			},
 			isFavorite: (trackId: string) => state.some(t => t.videoId === trackId),

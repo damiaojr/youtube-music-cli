@@ -885,6 +885,21 @@ function PlayerManager() {
 							});
 					}
 
+					// Last.fm Now Playing
+					const scrobblingConfig = config.get('scrobbling');
+					if (scrobblingConfig) {
+						const scrobbler = getScrobblingService();
+						scrobbler.configure(scrobblingConfig);
+						if (scrobbler.isLastFmEnabled) {
+							void scrobbler.updateNowPlaying({
+								title: track.title,
+								artist: artists,
+								album: track.album?.name,
+								duration: track.duration,
+							});
+						}
+					}
+
 					// MPRIS (Linux)
 					const mpris = getMprisService();
 					mpris.updateTrack(
@@ -1109,13 +1124,18 @@ function PlayerManager() {
 		return undefined;
 	}, [state.isPlaying, state.currentTrack, dispatch]);
 
-	// Scrobble when >50% of track has been played
+	// Scrobble when >50% of track or 4 minutes (240s) has been played
 	const scrobbledRef = useRef<string | null>(null);
+	const trackStartTimeRef = useRef<number>(0);
 	useEffect(() => {
+		if (state.currentTrack && trackStartTimeRef.current === 0) {
+			trackStartTimeRef.current = Math.floor(Date.now() / 1000);
+		}
+
 		if (
 			state.currentTrack &&
 			state.duration > 0 &&
-			state.progress / state.duration > 0.5 &&
+			(state.progress / state.duration > 0.5 || state.progress >= 240) &&
 			scrobbledRef.current !== state.currentTrack.videoId
 		) {
 			scrobbledRef.current = state.currentTrack.videoId;
@@ -1129,6 +1149,8 @@ function PlayerManager() {
 					title: state.currentTrack.title,
 					artist,
 					duration: state.duration,
+					album: state.currentTrack.album?.name,
+					timestamp: trackStartTimeRef.current || Math.floor(Date.now() / 1000),
 				});
 			}
 		}
@@ -1140,6 +1162,7 @@ function PlayerManager() {
 		) {
 			// New track started — reset so we can scrobble again
 			scrobbledRef.current = null;
+			trackStartTimeRef.current = Math.floor(Date.now() / 1000);
 		}
 	}, [state.progress, state.duration, state.currentTrack]);
 

@@ -34,6 +34,9 @@ export interface Flags {
 	setPath?: string;
 	// Config doctor flags
 	fix?: boolean;
+	// Last.fm flags
+	apiKey?: string;
+	apiSecret?: string;
 	// Verbose logging flag
 	verbose?: boolean;
 	// Stats command flags
